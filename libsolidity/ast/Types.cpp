@@ -2358,6 +2358,7 @@ string FunctionType::richIdentifier() const
 	case Kind::Require: id += "require"; break;
 	case Kind::ABIEncode: id += "abiencode"; break;
 	case Kind::ABIEncodePacked: id += "abiencodepacked"; break;
+	case Kind::ABIEncodeSelector: id += "abiencodeselector"; break;
 	default: solAssert(false, "Unknown function location."); break;
 	}
 	id += "_" + stateMutabilityToString(m_stateMutability);
@@ -3047,6 +3048,15 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 				strings(),
 				FunctionType::Kind::ABIEncodePacked,
 				true,
+				StateMutability::Pure
+			)},
+			{"encodeSelector", make_shared<FunctionType>(
+				strings{"string"},
+				strings{"bytes4"},
+				strings(),
+				strings(),
+				FunctionType::Kind::ABIEncodeSelector,
+				false,
 				StateMutability::Pure
 			)}
 		});
