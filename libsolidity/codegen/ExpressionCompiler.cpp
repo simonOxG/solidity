@@ -33,6 +33,8 @@
 #include <libsolidity/codegen/LValue.h>
 #include <libevmasm/GasMeter.h>
 
+#include <libdevcore/Whiskers.h>
+
 using namespace std;
 
 namespace dev
@@ -909,79 +911,104 @@ bool ExpressionCompiler::visit(FunctionCall const& _functionCall)
 		case FunctionType::Kind::ABIEncode:
 		case FunctionType::Kind::ABIEncodePacked:
 		case FunctionType::Kind::ABIEncodeWithSelector:
+		case FunctionType::Kind::ABIEncodeWithSignature:
 		{
-			// handle the special case when 
-			bool hasSelector = function.kind() == FunctionType::Kind::ABIEncodeWithSelector && arguments.size > 0;
+			bool const isPacked = function.kind() == FunctionType::Kind::ABIEncodePacked;
+			bool const hasSelectorOrSignature =
+				function.kind() == FunctionType::Kind::ABIEncodeWithSelector ||
+				function.kind() == FunctionType::Kind::ABIEncodeWithSignature;
 
 			TypePointers argumentTypes;
+			TypePointers targetTypes;
 			for (unsigned i = 0; i < arguments.size(); ++i)
 			{
-				auto const& arg = arguments[i];
-				arg->accept(*this);
+				arguments[i]->accept(*this);
 				// Do not keep the selector as part of the ABI encoded args
-				if (i > 0 || (i == 0 && !hasSelector)
-					argumentTypes.push_back(arg->annotation().type);
+				if (!hasSelectorOrSignature || i > 0)
+					argumentTypes.push_back(arguments[i]->annotation().type);
 			}
 			utils().fetchFreeMemoryPointer();
-			// stack now: <arg1> .. <argN> <memory pointer>
+			// stack now: [<selector>] <arg1> .. <argN> <free_mem>
 
 			// adjust by 32(+4) bytes to accommodate the length(+selector)
-			m_context << u256(32 + (hasSelector ? 4 : 0)) << Instruction::ADD;
+			m_context << u256(32 + (hasSelectorOrSignature ? 4 : 0)) << Instruction::ADD;
+			// stack now: [<selector>] <arg1> .. <argN> <data_encoding_area_start>
 
-			if (function.kind() == FunctionType::Kind::ABIEncode)
-			{
-				solAssert(function.padArguments(), "");
-				utils().abiEncode(argumentTypes, TypePointers());
-			}
-			else
+			if (isPacked)
 			{
 				solAssert(!function.padArguments(), "");
 				utils().packedEncode(argumentTypes, TypePointers());
 			}
-			utils().toSizeAfterFreeMemoryPointer();
-			// stack now: <arg1> <memory size> <memory pointer>
-
-			// adjust length to create the `bytes` payload size
-			m_context << u256(32) << Instruction::DUP3 << Instruction::SUB;
-			// save the size in the first slot
-			// valu offset mstore
-			m_context << Instruction::DUP2 << Instruction::MSTORE;
-
-			if (hasSelector)
+			else
 			{
-				m_context << Instruction::DUP1 << Instruction::SWAP3;
-				// stack now: <memory size> <memory pointer> <memory pointer> <arg1>
-				utils.convertType(*arguments[0]->annotation().type, FixedBytesType(4));
+				solAssert(function.padArguments(), "");
+				utils().abiEncode(argumentTypes, TypePointers());
+			}
+			utils().fetchFreeMemoryPointer();
+			// stack: [<selector>] <data_encoding_area_end> <bytes_memory_ptr>
+
+			// size is end minus start minus length slot
+			m_context.appendInlineAssembly(R"({
+				mstore(mem_ptr, sub(sub(mem_end, mem_ptr), 0x20))
+			})", {"mem_end", "mem_ptr"});
+			m_context << Instruction::SWAP1;
+			utils().storeFreeMemoryPointer();
+			// stack: [<selector>] <memory ptr>
+
+			if (hasSelectorOrSignature)
+			{
+				// stack: <selector> <memory pointer>
+
+				TypePointer const& selectorType = arguments[0]->annotation().type;
+				utils().moveIntoStack(selectorType->sizeOnStack());
+				TypePointer dataOnStack = selectorType;
+				// stack: <memory pointer> <selector>
+				if (function.kind() == FunctionType::Kind::ABIEncodeWithSignature)
+				{
+					// hash the signature
+					if (auto const* stringType = dynamic_cast<StringLiteralType const*>(selectorType.get()))
+					{
+						FixedHash<4> hash(dev::keccak256(stringType->value()));
+						m_context << (u256(FixedHash<4>::Arith(hash)) << (256 - 32));
+						dataOnStack = make_shared<FixedBytesType>(4);
+					}
+					else
+					{
+						utils().fetchFreeMemoryPointer();
+						// stack: <memory pointer> <selector> <free mem ptr>
+						utils().packedEncode(TypePointers{selectorType}, TypePointers());
+						utils().toSizeAfterFreeMemoryPointer();
+						m_context << Instruction::KECCAK256;
+						// stack: <memory pointer> <hash>
+
+						dataOnStack = make_shared<FixedBytesType>(32);
+					}
+				}
+				else
+				{
+					solAssert(function.kind() == FunctionType::Kind::ABIEncodeWithSelector, "");
+				}
+
+				utils().convertType(*dataOnStack, FixedBytesType(4));
+
+				// stack: <memory pointer> <selector>
 
 				// load current memory, mask and combine the selector
-				m_context << Instruction::DUP2 << Instruction::MLOAD;
-				m_context << (u256(s2u(-1)) >> (256 - 32)) << Instruction::AND;
-				m_context << Instruction::OR;
-
-				m_context << Instruction::SWAP1 << Insrtuction::MSTORE;
+				m_context.appendInlineAssembly(R"({
+					let data_start := add(mem_ptr, 0x20)
+					let data := mload(data_start)
+					data := and(data, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+					mstore(data_start, or(data, selector))
+				})", {"mem_ptr", "selector"});
+				m_context << Instruction::POP;
 			}
-
-			// stack now: <memory size> <memory pointer>
-			// mark the memory used (and drop the size)
-			m_context << Instruction::SWAP1 << Instruction::DUP2 << Instruction::ADD;
-			utils().storeFreeMemoryPointer();
 
 			// stack now: <memory pointer>
 			break;
+		}
 		case FunctionType::Kind::GasLeft:
 			m_context << Instruction::GAS;
 			break;
-		}
-		case FunctionType::Kind::ABIEncodeWithSelector:
-		{
-			utils().fetchFreeMemoryPointer();
-			utils().abiEncode(TypePointers{arguments[0]->type}, TypePointers());
-			utils().toSizeAfterFreeMemoryPointer();
-			m_context << Instruction::KECCAK256;
-			// mask bytes32 to bytes4
-			m_context << (u256(0xffffffff) << (256 - 32)) << Instruction::AND;
-			break;
-		}
 		default:
 			solAssert(false, "Invalid function type.");
 		}

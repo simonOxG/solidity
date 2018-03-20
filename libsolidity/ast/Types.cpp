@@ -2358,7 +2358,7 @@ string FunctionType::richIdentifier() const
 	case Kind::Require: id += "require"; break;
 	case Kind::ABIEncode: id += "abiencode"; break;
 	case Kind::ABIEncodePacked: id += "abiencodepacked"; break;
-	case Kind::ABIEncodeSelector: id += "abiencodeselector"; break;
+	case Kind::ABIEncodeWithSelector: id += "abiencodeselector"; break;
 	default: solAssert(false, "Unknown function location."); break;
 	}
 	id += "_" + stateMutabilityToString(m_stateMutability);
@@ -3035,8 +3035,8 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			{"encode", make_shared<FunctionType>(
 				TypePointers(),
 				TypePointers{make_shared<ArrayType>(DataLocation::Memory)},
-				strings(),
-				strings(),
+				strings{},
+				strings{},
 				FunctionType::Kind::ABIEncode,
 				true,
 				StateMutability::Pure
@@ -3044,19 +3044,28 @@ MemberList::MemberMap MagicType::nativeMembers(ContractDefinition const*) const
 			{"encodePacked", make_shared<FunctionType>(
 				TypePointers(),
 				TypePointers{make_shared<ArrayType>(DataLocation::Memory)},
-				strings(),
-				strings(),
+				strings{},
+				strings{},
 				FunctionType::Kind::ABIEncodePacked,
 				true,
 				StateMutability::Pure
 			)},
-			{"encodeSelector", make_shared<FunctionType>(
-				strings{"string"},
-				strings{"bytes4"},
-				strings(),
-				strings(),
-				FunctionType::Kind::ABIEncodeSelector,
-				false,
+			{"encodeWithSelector", make_shared<FunctionType>(
+				TypePointers{make_shared<FixedBytesType>(4)},
+				TypePointers{make_shared<ArrayType>(DataLocation::Memory)},
+				strings{},
+				strings{},
+				FunctionType::Kind::ABIEncodeWithSelector,
+				true,
+				StateMutability::Pure
+			)},
+			{"encodeWithSignature", make_shared<FunctionType>(
+				TypePointers{make_shared<ArrayType>(DataLocation::Memory, true)},
+				TypePointers{make_shared<ArrayType>(DataLocation::Memory)},
+				strings{},
+				strings{},
+				FunctionType::Kind::ABIEncodeWithSignature,
+				true,
 				StateMutability::Pure
 			)}
 		});

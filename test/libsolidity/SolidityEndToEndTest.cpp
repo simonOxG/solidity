@@ -3529,6 +3529,7 @@ BOOST_AUTO_TEST_CASE(sha256_empty)
 			}
 		}
 	)";
+	compileAndRun(sourceCode);
 	ABI_CHECK(callContractFunction("f()"), fromHex("0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"));
 }
 
@@ -3541,6 +3542,7 @@ BOOST_AUTO_TEST_CASE(ripemd160_empty)
 			}
 		}
 	)";
+	compileAndRun(sourceCode);
 	ABI_CHECK(callContractFunction("f()"), fromHex("0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"));
 }
 
@@ -3553,6 +3555,7 @@ BOOST_AUTO_TEST_CASE(keccak256_empty)
 			}
 		}
 	)";
+	compileAndRun(sourceCode);
 	ABI_CHECK(callContractFunction("f()"), fromHex("0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"));
 }
 
@@ -10918,13 +10921,13 @@ BOOST_AUTO_TEST_CASE(abi_encode)
 		}
 	)";
 	compileAndRun(sourceCode, 0, "C");
-	ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(32), u256(64), u256(1), u256(2)));
-	ABI_CHECK(callContractFunction("g()"), encodeArgs(u256(32), u256(64), u256(1), u256(2)));
+	ABI_CHECK(callContractFunction("f()"), encodeArgs(u256(0x20), u256(0x40), u256(1), u256(2)));
+	ABI_CHECK(callContractFunction("g()"), encodeArgs(u256(0x20), u256(0x40), u256(1), u256(2)));
 }
 
 BOOST_AUTO_TEST_CASE(abi_encode_complex_call)
 {
-	char const* sourceCode = R"(
+	char const* sourceCode = R"T(
 		contract C {
 			function f(uint8 a, string b, string c) {
 				require(a == 42);
@@ -10943,14 +10946,14 @@ BOOST_AUTO_TEST_CASE(abi_encode_complex_call)
 				return this.call(request);
 			}
 		}
-	)";
+	)T";
 	compileAndRun(sourceCode, 0, "C");
 	ABI_CHECK(callContractFunction("g(uint8,string)", u256(42), u256(0x40), u256(2), string("He")), encodeArgs(u256(1)));
 }
 
 BOOST_AUTO_TEST_CASE(abi_encodewithselector_complex_call)
 {
-	char const* sourceCode = R"(
+	char const* sourceCode = R"T(
 		contract C {
 			function f(uint8 a, string b, string c) {
 				require(a == 42);
@@ -10960,7 +10963,7 @@ BOOST_AUTO_TEST_CASE(abi_encodewithselector_complex_call)
 				require(keccak256(b) == keccak256(c));
 			}
 			function g(uint8 a, string b) returns (bool) {
-				bytes request = abi.encodeWithSelector(
+				bytes request = abi.encodeWithSignature(
 					"f(uint8,string)",
 					a,
 					b,
@@ -10969,7 +10972,7 @@ BOOST_AUTO_TEST_CASE(abi_encodewithselector_complex_call)
 				return this.call(request);
 			}
 		}
-	)";
+	)T";
 	compileAndRun(sourceCode, 0, "C");
 	ABI_CHECK(callContractFunction("g(uint8,string)", u256(42), u256(0x40), u256(2), string("He")), encodeArgs(u256(1)));
 }

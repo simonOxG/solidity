@@ -905,7 +905,8 @@ public:
 		Require, ///< require()
 		ABIEncode,
 		ABIEncodePacked,
-		ABIEncodeSelector,
+		ABIEncodeWithSelector,
+		ABIEncodeWithSignature,
 		GasLeft ///< gasleft()
 	};
 
